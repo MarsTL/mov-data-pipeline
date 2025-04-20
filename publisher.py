@@ -7,20 +7,21 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
 
-##newly added lines
+##newly added lines *Mars improved 
 from concurrent import futures
 from google.oauth2 import service_account
 
-SERVICE_ACCOUNT_FILE = os.path.join("path","to", "service","account","key","file",".json")
+#NEW path to service account key Mars
+SERVICE_ACCOUNT_FILE = "/opt/shared/mov-data-pipeline/service-account.json"
 
-
-#new 4/16 create pub/sub publisher 
+#NEW create pub/sub publisher Mars
 project_id = "mov-data-eng"
-##modified and new line
+topic_id = "bus-breadcrumbs"
+
+#modified and new line Mars same as alex 
 pubsub_creds = (service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE))
 publisher = pubsub_v1.PublisherClient(credentials=pubsub_creds)
-##end of modified and new line
-topic_path = publisher.topic_path(project_id, "bus-breadcrumbs")
+topic_path = publisher.topic_path(project_id, topic_id)
 
 # Load vehicle IDs
 with open("vehicle_IDs.txt", "r") as f:
@@ -35,10 +36,7 @@ output_dir = f"/opt/shared/mov-data-pipeline/bus_data/{today}"
 os.makedirs(output_dir, exist_ok=True)
 
 #filename = os.path.join(output_dir, f"breadcrumbs_{today}.json")
-
-
-
-##newly added function
+ 
 def future_callback(future):
   try:
     #wait for the result of the publish operation
@@ -47,7 +45,9 @@ def future_callback(future):
     print(f"Error publishing message: {e}")
 
 
-
+#Main publishing loop
+count = 0
+future_list =[]
 
 # Fetch all bus data per vehicle and add it to a file
 for vehicle_id in vehicle_ids:
@@ -70,21 +70,22 @@ for vehicle_id in vehicle_ids:
             #publish pub/sub
             for record in records:
                 message = json.dumps(record).encode("utf-8")
-		#previously existed
+		        #previously existed
                 future = publisher.publish(topic_path, data=message)
-		### newly added lines
-        future.add_done_callback(future_callback)
-        future_list.append(future)
-        count += 1
-        if count % 50000 == 0:
-            print(f"Published {count} messages.")
-        for future in futures.as_completed(future_list):
-    	    continue
-
+		        ### newly added lines
+                future.add_done_callback(future_callback)
+                future_list.append(future)
+                count += 1
+                if count % 50000 == 0:
+                    print(f"Published {count} messages.")
+           # for future in futures.as_completed(future_list):
+    	    #    continue
             print(f"Published {len(records)} messages for vehicle {vehicle_id}")
-
             print(f"Wrote {len(records)} records for vehicle {vehicle_id}")
     except Exception as e:
         print(f"Error for {vehicle_id}: {e}")
+
+for future in futures.as_completed(future_list):
+    	continue
             
 print(f"Finished gathering breadcrumbs for {today}")
