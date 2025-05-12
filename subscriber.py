@@ -288,8 +288,8 @@ def store_database(df):
       df_new = df_new.rename(columns={'TIMESTAMP': 'tstamp', 'GPS_LATITUDE': 'latitude', 'GPS_LONGITUDE': 'longitude', 'SPEED': 'speed', 'EVENT_NO_TRIP': 'trip_id'})
       dataframe_data =  df_new[['tstamp', 'latitude', 'longitude','speed', 'trip_id']]
   
-      f = io.StringIO()
-      dataframe_data.to_csv(f, header=False, index=False, sep ='\t')
+      csv_data = dataframe_data.to_csv(index=False, sep ='\t')
+      f = io.StringIO(csv_data)
       f.seek(0)
       conn = db_connect()
       with conn.cursor() as cursor:
