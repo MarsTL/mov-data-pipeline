@@ -1,4 +1,4 @@
-authorized_key
+verauthorized_key
 service-account.json
 *.log
 bus_data
@@ -11,4 +11,3 @@ ub A
 *.json
 ub
 pgdata-backup.tar.gz
-output2

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Trip Speed Visualization</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet" />
+    <style>
+      body { margin: 0; padding: 0; }
+      #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+    <script>
+      mapboxgl.accessToken = 'pk.eyJ1IjoiY2hldmRhciIsImEiOiJjbWI3ODl6dnowNGIzMm1wdDg1bTExazZmIn0.31YdnicELgCGfp5Xo8pqjA';
+      
+      const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/streets-v11',
+        center: [-122.418, 45.502],
+        zoom: 15
+      });
+
+      map.on('load', () => {
+        map.addSource('breadcrumbs', {
+          type: 'geojson',
+          data: 'viz_data/output.geojson'
+        });
+
+        map.addLayer({
+          id: 'breadcrumbs-speed',
+          type: 'circle',
+          source: 'breadcrumbs',
+          paint: {
+            'circle-radius': 5,
+		  'circle-color': [
+		  'interpolate',
+		  ['linear'],
+		  ['get', 'speed'],
+		  0, '#2DC4B2',   // Green (0 mph)
+		  5, '#3BB3C3',   // Blue-green
+		  10, '#669EC4',  // Blue
+		  15, '#8B88B6',  // Purple-blue
+		  20, '#A2719B'   // Purple (20+ mph)
+		],
+            'circle-opacity': 0.8
+          }
+        });
+      });
+    </script>
+  </body>
+</html>
+

@@ -8,8 +8,6 @@ import psycopg2
 import os
 import io
 import csv
-import threading
-
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -36,9 +34,7 @@ def db_connect():
 
 json_data = []
 TableName = 'breadcrumb'
-lock = threading.Lock()
-
-
+TableName2 = 'trip'
 
 def validate_event_no_stop(df):
   if df is None:
@@ -191,6 +187,8 @@ def validate_vehicle_id(df):
     return None
 
 
+
+
 def validate_data(df):
   df = validate_event_no_stop(df)
   df = validate_event_no_trip(df)
@@ -253,6 +251,33 @@ def transform_data(df):
     return None
 
 
+
+
+def insert_trip_id(trip_ids):
+  conn = None
+  try:
+    conn = db_connect()
+    with conn.cursor() as cursor:
+      columns = [col[0] for col in cursor.fetchall()]
+      print(f'trip columns: {columns}')
+      f= io.StringIO()
+      for trip_id in trip_ids:
+        f.write(f"{trip_id}\n")
+      f.seek(0)
+      cursor.copy_from(f, TableName2, sep='\t', columns=('trip_id',))
+      conn.commit()
+      print(f'inserted {len(trip_ids)} trip ids into trip table')
+      return True
+      
+  except Exception as e:
+    print(f"Error inserting trip ids into trip table: {e}")
+    if conn:
+      conn.rollback()
+    return False
+  finally:
+    if conn:
+      conn.close()
+
 def store_database(df):
   conn = None
   try:
@@ -263,13 +288,17 @@ def store_database(df):
         print(f"Column {col} not found in DataFrame")
         return False
 
+    if new_trip_ids:
+      print(f"Inserting {len(new_trip_ids)} new trip ids into the database")
+      if not insert_trip_id(new_trip_ids):
+        print("Error inserting trip ids into the database")
+        return False
       
     df_new = df_new.rename(columns={'TIMESTAMP': 'tstamp', 'GPS_LATITUDE': 'latitude', 'GPS_LONGITUDE': 'longitude', 'SPEED': 'speed', 'EVENT_NO_TRIP': 'trip_id'})
     dataframe_data =  df_new[['tstamp', 'latitude', 'longitude','speed', 'trip_id']]
 
 
-
-    csv_data = dataframe_data.to_csv(index=False,header = False, sep ='\t')
+    csv_data = dataframe_data.to_csv(index=False, sep ='\t')
     f = io.StringIO(csv_data)
     f.seek(0)
     conn = db_connect()
@@ -291,13 +320,14 @@ def store_database(df):
 
 def callback(message):
   try:
-    with lock:
-      data = json.loads(message.data.decode('utf-8'))
-      json_data.append(data)
-      message.ack()
+     data = json.loads(message.data.decode('utf-8'))
+     json_data.append(data)
+     message.ack() 
   except Exception as e:
     print(f"Error processing message: {e}")
     message.nack()
+ 
+
 
 def other_process(json_data):
   if not json_data:
@@ -357,23 +387,17 @@ try:
         streaming_pull_future.result(timeout =3)
       except:
         pass
-    with lock:
-      pro_df = json_data.copy()
-      json_data.clear()
-    if pro_df:
-      pros_df = other_process(pro_df)
-      if pros_df is not None:
-        print(f"successfully processed  {len(pros_df)} records")
-      else:
-        print("no data to process")
+    pro_df = other_process(json_data)
+    if pro_df is not None:
+      print(f"successfully processed  {len(pro_df)} records")
     else:
       print("no data to process")
+    json_data.clear()
 
 except KeyboardInterrupt:
   print('interrupted by keyboard')
   print('process remaining data')
-  with lock:
-    other_process(json_data)
+  other_process(json_data)
 
 except Exception as e:
   print(f"Error processing loop: {e}")

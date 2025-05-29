@@ -1,29 +1,18 @@
-from concurrent.futures import TimeoutError
-from google.cloud import pubsub_v1
 import json
 from datetime import datetime
-from google.oauth2 import service_account
 import pandas as pd
 import psycopg2
 import os
 import io
 import csv
-import threading
-
-
-from dotenv import load_dotenv
+import shutil
+import glob
+from dotenv import load_dotenv 
 load_dotenv()
 
 
-project_id = "mov-data-eng"
-subscription_id = "bus-breadcrumbs-sub"
-SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
-
-pubsub_creds2 = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE)
-subscriber = pubsub_v1.SubscriberClient(credentials=pubsub_creds2)
-subscription_path = subscriber.subscription_path(project_id, subscription_id)
-
-OUTPUT_DIR = '/opt/shared/mov-data-pipeline/output'
+INPUT_DIR = '/opt/shared/mov-data-pipeline/bus_data/2025-05-27'
+OUTPUT_DIR = '/opt/shared/mov-data-pipeline/output2/2025-05-27'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 def db_connect():
     return psycopg2.connect(
@@ -34,9 +23,8 @@ def db_connect():
     )
 
 
-json_data = []
 TableName = 'breadcrumb'
-lock = threading.Lock()
+
 
 
 
@@ -233,7 +221,6 @@ def transform_data(df):
     df['SPEED'] = df.apply(lambda x:x['dMETERS'] / x['dTIMESTAMP'].total_seconds() 
     if pd.notnull(x['dTIMESTAMP']) and x['dTIMESTAMP'].total_seconds() > 0.1 else 0, axis=1)
 
-
     
     invalid_range_for_speed = (df['SPEED'] < 0) | (df['SPEED'] > 95)
     try:
@@ -267,8 +254,6 @@ def store_database(df):
     df_new = df_new.rename(columns={'TIMESTAMP': 'tstamp', 'GPS_LATITUDE': 'latitude', 'GPS_LONGITUDE': 'longitude', 'SPEED': 'speed', 'EVENT_NO_TRIP': 'trip_id'})
     dataframe_data =  df_new[['tstamp', 'latitude', 'longitude','speed', 'trip_id']]
 
-
-
     csv_data = dataframe_data.to_csv(index=False,header = False, sep ='\t')
     f = io.StringIO(csv_data)
     f.seek(0)
@@ -289,25 +274,17 @@ def store_database(df):
 
 
 
-def callback(message):
+def other_process(file):
   try:
-    with lock:
-      data = json.loads(message.data.decode('utf-8'))
-      json_data.append(data)
-      message.ack()
-  except Exception as e:
-    print(f"Error processing message: {e}")
-    message.nack()
-
-def other_process(json_data):
-  if not json_data:
-    print("No data to process")
-    return None
-
-  try:
+    json_data = []
+    with open(file, 'r', encoding='utf-8') as f:
+      json_data = json.load(f)
+      print(f"loaded {len(json_data)} records from {file}")
+      if not json_data:
+        print(f"No data to process")
+        return False
     df = pd.DataFrame(json_data)
     df = df.drop_duplicates()
-
 
     df = validate_data(df)
     print("data validation complete")
@@ -320,60 +297,30 @@ def other_process(json_data):
     if df is not None and not df.empty:
       save_db = store_database(df)
       if save_db:
-        json_data = df.to_dict(orient='records')
-        timestamp = datetime.now()
-        filename = os.path.join(OUTPUT_DIR, timestamp.strftime('%Y-%m-%d') + '.json')
-        try:
-          with open(filename, 'a') as f:
-            for data in json_data:
-              json.dump(data, f)
-              f.write('\n')
-          print(f"Saved {len(json_data)} records to {filename}")
-        except Exception as e:
-          print(f"Error saving data to file: {e}")
-        return df
+        path = os.path.join(OUTPUT_DIR, os.path.basename(file))
+        shutil.copy(file, path)
+        print(f"copied {file} to {path}")
+        return True
       else:
         print("Error storing data in database")
+        return False
     else:
       print("No valid data to process")
-    return None
+      return False
   except Exception as e:
     print(f"Error processing data: {e}")
-    return None
+    return False
 
+def main():
+  gz = glob.glob(os.path.join(INPUT_DIR, '*.json'))
+  if not gz:
+    print("No files found")
+    return 
+  print(f"found {len(gz)} files")
+  for file in gz:
+    print(f"processing {file}")
+    other_process(file)
+  print("done")
 
-try:
-  while True:
-    try:
-      streaming_pull_future = subscriber.subscribe(subscription_path, callback=callback)
-      streaming_pull_future.result(timeout=20)
-    except TimeoutError:
-      print("Timeout occurred")
-    except Exception as e:
-      print(f"subscription error: {e}")
-    finally:
-      try:
-        streaming_pull_future.cancel()
-        streaming_pull_future.result(timeout =3)
-      except:
-        pass
-    with lock:
-      pro_df = json_data.copy()
-      json_data.clear()
-    if pro_df:
-      pros_df = other_process(pro_df)
-      if pros_df is not None:
-        print(f"successfully processed  {len(pros_df)} records")
-      else:
-        print("no data to process")
-    else:
-      print("no data to process")
-
-except KeyboardInterrupt:
-  print('interrupted by keyboard')
-  print('process remaining data')
-  with lock:
-    other_process(json_data)
-
-except Exception as e:
-  print(f"Error processing loop: {e}")
+if __name__ == '__main__':
+  main()
