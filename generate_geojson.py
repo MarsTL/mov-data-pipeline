@@ -13,8 +13,8 @@ trip_id = sys.argv[1]
 # Connect to postgres sql
 conn = psycopg2.connect(
     dbname="postgres",
-    user="postgres",
-    password="mov",
+    user="hidden",
+    password="hidden",
     host="localhost",
     port="5432"
 )
